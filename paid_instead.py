@@ -2,21 +2,18 @@ import streamlit as st
 import psycopg2
 import datetime
 import pandas as pd
-
-persons = [st.secrets["person1"],st.secrets["person2"]]
+from dateutil.relativedelta import relativedelta
 
 def main():
-    month = datetime.datetime.now().month
-    df_current_month,df_pre_month = select_data(month)
-
+    persons = [st.secrets["person1"],st.secrets["person2"]]
 
     st.subheader("生活費計算")
 
-    tab_input, tab_result, tab_edit = st.tabs(["入力", "計算結果", "データ編集"])
+    tab_input,tab_result,tab_edit = st.tabs(["入力", "月次結果", "データ編集"])
 
     categories = get_categories()
 
-    # データ登録
+    # データ登録タブ
     with tab_input:
         col_date,col_item,col_cat = st.columns(3)
         with col_date:
@@ -39,43 +36,66 @@ def main():
                 st.warning("買ったものを入力してください。")
             else:
                 try:
-                    insert_data(date,bought_item,price,paid_person,category)
+                    add_pay_history(date,bought_item,price,paid_person,category)
                 except Exception as e:
                     st.error(f"データ登録に失敗しました。\n{e}")
                 else:
                     st.experimental_rerun()
                 st.success("データ登録に成功しました。")
 
+    # 支払い履歴を取得
+    pay_history_df = get_pay_history()
 
-
-    # 結果表示
+    # 月次集計結果タブ
     with tab_result:
-        st.subheader(f"＜{month}月＞")
-        result_calc_n_display(df_current_month)
-        st.text("")
-        st.subheader(f"＜{month-1}月＞")
-        result_calc_n_display(df_pre_month)
+        past_month_limit = 1  # 何か月前まで表示するか
+        for i in range(past_month_limit+1):
+            display_month = (datetime.datetime.now() - relativedelta(months=i)).strftime("%Y%m")
 
+            st.subheader(f"＜{int(display_month[-2:])}月＞")
 
-        # ログ確認&削除
+            monthly_pay_history_df = pay_history_df[pd.to_datetime(pay_history_df["日付"]).dt.strftime("%Y%m")==display_month]
+            monthly_result_by_person = monthly_pay_history_df.groupby("人").sum()
+
+            # 各自の支払額をリスト化
+            total_payments = []
+            for person in persons:
+                try:
+                    total_payments.append(monthly_result_by_person.at[person,"値段"])
+                except KeyError:
+                    total_payments.append(0)
+
+            # 各自の合計金額を表示
+            st.subheader(f"{persons[0]}:{total_payments[0]}円 {persons[1]}:{total_payments[1]}円")
+            # 差額算出
+            difference = abs(total_payments[0]-total_payments[1])
+
+            # 集計結果表示
+            if total_payments[0] > total_payments[1]:
+                st.subheader(f" {persons[1]}が{difference}円支払う","result")
+            elif total_payments[0] < total_payments[1]:
+                st.subheader(f" {persons[0]}が{difference}円支払う","result")
+            else:
+                st.subheader(" 支払額は同じ")
+
+    # 履歴確認&削除タブ
     with tab_edit:
-        df_concat = pd.concat([df_current_month, df_pre_month])
-        df_concat = df_concat.sort_values("日付")
-        col_delete,col_df = st.columns(2)
+        pay_history_df = pay_history_df.sort_values("日付")
+        col_delete,col_display = st.columns(2)
 
         with col_delete:
             try:
-                id = st.number_input("削除するidを入力",df_concat["id"].min(),df_concat["id"].max(),value = df_concat["id"].max())
-                st.subheader(f"{df_concat[df_concat['id']==id].iat[0,2]}")
+                id = st.number_input("削除するidを入力",pay_history_df["id"].min(),pay_history_df["id"].max(),value = pay_history_df["id"].max())
+                st.subheader(f"{pay_history_df[pay_history_df['id']==id].iat[0,2]}")
                 if st.button("削除"):
-                    delete_data(id)
+                    delete_pay_history(id)
                     st.experimental_rerun()
             except:
                 pass
 
-        with col_df:
-            df_concat = df_concat.set_index("id")
-            st.dataframe(df_concat.iloc[::-1],height=250)
+        with col_display:
+            pay_history_df = pay_history_df.set_index("id")
+            st.dataframe(pay_history_df.iloc[::-1],height=250)
 
 def conn_supabase():
     ip = st.secrets["host"]
@@ -83,8 +103,10 @@ def conn_supabase():
     dbname = st.secrets["dbname"]
     user = st.secrets["user"]
     pw = st.secrets["password"]
+
     return f"host={ip} port={port} dbname={dbname} user={user} password={pw}"
 
+# カテゴリーを取得
 def get_categories():
     sql = f"""
         SELECT category
@@ -100,7 +122,8 @@ def get_categories():
 
     return categories
 
-def insert_data(date,bought_item,price,paid_person,category):
+# 支払い履歴追加
+def add_pay_history(date,bought_item,price,paid_person,category):
     sql = f"""
         INSERT INTO household_expenses.tr_paid_instead
             (date,bought_items,price,person,category_id)
@@ -119,34 +142,29 @@ def insert_data(date,bought_item,price,paid_person,category):
             cur.execute(sql)
         conn.commit()
 
-def select_data(month):
+# 支払い履歴取得
+def get_pay_history():
+    sql = f"""
+        SELECT
+            paid_instead_id,
+            date,
+            bought_items,
+            price,
+            person
+        FROM household_expenses.tr_paid_instead
+    """
+    with psycopg2.connect(conn_supabase()) as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql)
+            data = cur.fetchall()
+
     colnames =["id","日付","買い物","値段","人"]
+    pay_history_df = pd.DataFrame(data,columns=colnames)
 
-    sql1 = f"""
-        SELECT paid_instead_id,date,bought_items,price,person
-        FROM household_expenses.tr_paid_instead
-        where extract(month from date) = \'{month}\'
-        """
-    with psycopg2.connect(conn_supabase()) as conn:
-        with conn.cursor() as cur:
-            cur.execute(sql1)
-            data = cur.fetchall()
-    df_current_month = pd.DataFrame(data,columns=colnames)
+    return pay_history_df
 
-    sql2 = f"""
-        SELECT paid_instead_id,date,bought_items,price,person
-        FROM household_expenses.tr_paid_instead
-        where extract(month from date) = \'{month-1}\'
-        """
-    with psycopg2.connect(conn_supabase()) as conn:
-        with conn.cursor() as cur:
-            cur.execute(sql2)
-            data = cur.fetchall()
-    df_pre_month = pd.DataFrame(data,columns=colnames)
-
-    return df_current_month,df_pre_month
-
-def delete_data(id):
+# 支払い履歴削除
+def delete_pay_history(id):
     sql = f"""
         DELETE FROM household_expenses.tr_paid_instead
         WHERE paid_instead_id = {id}
@@ -155,28 +173,5 @@ def delete_data(id):
         with conn.cursor() as cur:
             cur.execute(sql)
         conn.commit()
-
-def result_calc_n_display(df):
-    df_sum = df[["値段","人"]].groupby("人").sum()  # 各自の合計金額を計算
-
-    total_payments = []
-    for i in range(2):
-        try:
-            total_payments.append(df_sum.at[persons[i],"値段"])
-        except KeyError:
-            total_payments.append(0)
-
-    st.subheader(f"{persons[0]}:{total_payments[0]}円 {persons[1]}:{total_payments[1]}円")  #各自の合計金額
-
-    calculated_price = abs(total_payments[0]-total_payments[1])  # 差額算出
-
-    # 計算結果表示
-    if total_payments[0] > total_payments[1]:
-        st.subheader(f" {persons[1]}が{calculated_price}円支払う","result")
-    elif total_payments[0] < total_payments[1]:
-        st.subheader(f" {persons[0]}が{calculated_price}円支払う","result")
-    else:
-        st.subheader(" 支払額は同じ")
-
 
 main()
