@@ -3,9 +3,13 @@ import psycopg2
 import datetime
 import pandas as pd
 from dateutil.relativedelta import relativedelta
+import os
+from dotenv import load_dotenv
+
+
 
 def main():
-    persons = [st.secrets["person1"],st.secrets["person2"]]
+    persons = [read_env_var("person1"),read_env_var("person2")]
 
     st.subheader("生活費計算")
 
@@ -98,11 +102,11 @@ def main():
             st.dataframe(pay_history_df.iloc[::-1],height=250)
 
 def conn_supabase():
-    ip = st.secrets["host"]
-    port = st.secrets["port"]
-    dbname = st.secrets["dbname"]
-    user = st.secrets["user"]
-    pw = st.secrets["password"]
+    ip = read_env_var("host")
+    port = read_env_var("port")
+    dbname = read_env_var("dbname")
+    user = read_env_var("user")
+    pw = read_env_var("password")
 
     return f"host={ip} port={port} dbname={dbname} user={user} password={pw}"
 
@@ -173,5 +177,26 @@ def delete_pay_history(id):
         with conn.cursor() as cur:
             cur.execute(sql)
         conn.commit()
+
+def read_env_var(key):
+    """
+    環境変数を読み込む
+    ユーザー名からstreamlit cloud上かローカルかを判断
+
+    Args:
+        key (str): 環境変数のキー
+
+    Returns:
+        any: 環境変数のバリュー
+    """
+
+    load_dotenv(".env")
+
+    if os.environ["USERNAME"] == "":
+        value = st.secrets[key]
+    else:
+        value = os.environ.get(key)
+
+    return value
 
 main()
