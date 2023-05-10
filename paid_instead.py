@@ -5,7 +5,7 @@ import pandas as pd
 from dateutil.relativedelta import relativedelta
 
 def main():
-    st.write(__name__)
+    st.write(os.environ["USERNAME"])
     persons = [st.secrets["person1"],st.secrets["person2"]]
 
     st.subheader("生活費計算")
