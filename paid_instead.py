@@ -96,6 +96,7 @@ def main():
         with col_display:
             pay_history_df = pay_history_df.set_index("id")
             st.dataframe(pay_history_df.iloc[::-1],height=250)
+    st.write(__name__)
 
 def conn_supabase():
     ip = st.secrets["host"]
