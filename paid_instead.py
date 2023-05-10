@@ -5,6 +5,7 @@ import pandas as pd
 from dateutil.relativedelta import relativedelta
 
 def main():
+    st.write(__name__)
     persons = [st.secrets["person1"],st.secrets["person2"]]
 
     st.subheader("生活費計算")
@@ -96,7 +97,7 @@ def main():
         with col_display:
             pay_history_df = pay_history_df.set_index("id")
             st.dataframe(pay_history_df.iloc[::-1],height=250)
-    st.write(__name__)
+
 
 def conn_supabase():
     ip = st.secrets["host"]
