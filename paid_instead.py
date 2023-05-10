@@ -3,6 +3,7 @@ import psycopg2
 import datetime
 import pandas as pd
 from dateutil.relativedelta import relativedelta
+import os
 
 def main():
     st.write(os.environ["USERNAME"])
